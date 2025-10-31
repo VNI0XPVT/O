@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from bot import Config
+print(Config.BOT_TOKEN)
 
 import sys
 import subprocess
