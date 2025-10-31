@@ -2,21 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Safe Demo Telegram Bot (2-file setup)
-- No PII/OSINT lookups.
-- Mock responses only.
-- Inline menu + simple state flow.
-- Works with polling (no webhook).
-
-Run:
-  export BOT_TOKEN="123456:REPLACE_WITH_YOUR_TOKEN"
-  python3 -m venv .venv && source .venv/bin/activate
-  pip install -r requirements.txt
-  python bot.py
+Safe Demo Telegram Bot (fixed)
+- No real OSINT calls; mock/demo outputs only.
+- Works with polling.
+- Fix: replaced `nonlocal BOT_NAME_FOR_LINK` with `global BOT_NAME_FOR_LINK`.
 """
 
 import os
-import asyncio
 import logging
 from datetime import datetime
 import pytz
@@ -32,13 +24,13 @@ from telegram.ext import (
 # ========= BASIC CONFIG =========
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")  # set this before running
-BOT_NAME_FOR_LINK = None  # auto-filled after app starts
+BOT_NAME_FOR_LINK = None  # filled post-init
 DAILY_FREE_SEARCHES = 3
 PRIVATE_SEARCH_COST = 1
 REFERRAL_BONUS = 0.0
 JOINING_BONUS = 0.0
 
-# In-memory "credits" & "usage" (demo only; no DB)
+# In-memory demo store (no DB)
 USERS = {}  # user_id -> {"credits": float, "daily_used": int, "last_date": "YYYY-MM-DD"}
 
 # ========= LOGGING =========
@@ -88,7 +80,6 @@ def _ensure_user(user_id: int):
 
 
 def _demo_phone_report(number: str) -> str:
-    # MOCK, no PII
     now = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     return (
         "╔══════════════════════════════╗\n"
@@ -144,20 +135,19 @@ def _demo_email_report(email: str) -> str:
 # ========= HANDLERS =========
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not user:
+    if not user or not update.effective_chat:
         return
     _ensure_user(user.id)
 
     text = (
         f"👋 Hello, {user.first_name or 'User'}!\n\n"
         "Welcome to the *Safe Demo* Lookup Bot.\n"
-        f"• Free group-like demo: {DAILY_FREE_SEARCHES} lookups/day\n"
+        f"• Free demo: {DAILY_FREE_SEARCHES} lookups/day\n"
         f"• Private lookup cost (demo): {PRIVATE_SEARCH_COST} credit\n"
         "• No real OSINT — only mock data.\n\n"
         "Use the buttons below:"
     )
-    if update.effective_chat:
-        await update.message.reply_text(text, reply_markup=main_menu_kb(), parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=main_menu_kb(), parse_mode="Markdown")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,9 +171,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _ensure_user(uid)
 
     if data == "main_menu":
-        await query.edit_message_text(
-            "Main menu:", reply_markup=main_menu_kb()
-        )
+        await query.edit_message_text("Main menu:", reply_markup=main_menu_kb())
         return
 
     if data == "start_lookup":
@@ -248,10 +236,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     _ensure_user(user.id)
     rec = USERS[user.id]
-
-    # simple daily reset already handled in _ensure_user
     state = context.user_data.get("state")
-
     text = (update.message.text or "").strip()
 
     # Vehicle (prefixed with '.')
@@ -259,19 +244,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         vno = text[1:].strip().upper()
         if not vno:
             return
-        # Daily free check
+        # daily vs credit
         if rec["daily_used"] >= DAILY_FREE_SEARCHES and rec["credits"] < PRIVATE_SEARCH_COST:
-            await update.message.reply_text(
-                "⚠️ Daily limit exceeded and insufficient credits (demo)."
-            )
+            await update.message.reply_text("⚠️ Daily limit exceeded and insufficient credits (demo).")
             return
-
-        # Charge (demo)
         if rec["daily_used"] >= DAILY_FREE_SEARCHES:
             rec["credits"] -= PRIVATE_SEARCH_COST
         else:
             rec["daily_used"] += 1
-
         report = _demo_vehicle_report(vno)
         await update.message.reply_text(f"`{report}`", parse_mode="Markdown")
         context.user_data["state"] = None
@@ -283,18 +263,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if email.count("@") != 1:
             await update.message.reply_text("❌ Invalid email format.")
             return
-
         if rec["daily_used"] >= DAILY_FREE_SEARCHES and rec["credits"] < PRIVATE_SEARCH_COST:
-            await update.message.reply_text(
-                "⚠️ Daily limit exceeded and insufficient credits (demo)."
-            )
+            await update.message.reply_text("⚠️ Daily limit exceeded and insufficient credits (demo).")
             return
-
         if rec["daily_used"] >= DAILY_FREE_SEARCHES:
             rec["credits"] -= PRIVATE_SEARCH_COST
         else:
             rec["daily_used"] += 1
-
         report = _demo_email_report(email)
         await update.message.reply_text(f"`{report}`", parse_mode="Markdown")
         context.user_data["state"] = None
@@ -303,22 +278,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Phone (10-digit)
     if text.isdigit() and len(text) == 10 and (state in (None, "waiting_phone")):
         if rec["daily_used"] >= DAILY_FREE_SEARCHES and rec["credits"] < PRIVATE_SEARCH_COST:
-            await update.message.reply_text(
-                "⚠️ Daily limit exceeded and insufficient credits (demo)."
-            )
+            await update.message.reply_text("⚠️ Daily limit exceeded and insufficient credits (demo).")
             return
-
         if rec["daily_used"] >= DAILY_FREE_SEARCHES:
             rec["credits"] -= PRIVATE_SEARCH_COST
         else:
             rec["daily_used"] += 1
-
         report = _demo_phone_report(text)
         await update.message.reply_text(f"`{report}`", parse_mode="Markdown")
         context.user_data["state"] = None
         return
 
-    # Otherwise ignore or guide
+    # Otherwise guide
     await update.message.reply_text(
         "Send:\n• 10-digit number\n• .MH01AB1234\n• email@example.com\n(or use the menu)"
     )
@@ -332,12 +303,11 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not BOT_TOKEN:
         raise SystemExit("ERROR: Set BOT_TOKEN environment variable before running.")
-
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Fill bot username for deep-link (if needed later)
     async def _set_name(app: Application):
-        nonlocal BOT_NAME_FOR_LINK
+        global BOT_NAME_FOR_LINK
         me = await app.bot.get_me()
         BOT_NAME_FOR_LINK = me.username
 
@@ -347,11 +317,11 @@ def main():
     application.add_handler(CommandHandler("help", cmd_help))
     application.add_handler(CallbackQueryHandler(on_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-
     application.add_error_handler(on_error)
 
     log.info("Starting Safe Demo Bot (polling)…")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
