@@ -1,3 +1,4 @@
+cat > bot.py << 'PY'
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # VNIOX OSINT Bot — single-file app with:
@@ -6,15 +7,6 @@
 #   • Logs to channel
 #   • Flask control panel (toggle bot ON/OFF)
 #   • PTB v20+ compatible
-#
-# Run:
-#   python app.py
-# Panel:
-#   http://127.0.0.1:5000/  (password default: bm2)
-#
-# Settings priority:
-#   1) ENV BOT_TOKEN
-#   2) data.txt (JSON in same directory)
 
 import os
 import re
@@ -23,7 +15,7 @@ import logging
 import threading
 import sqlite3
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import Tuple, Optional
 
 import pytz
 import requests
@@ -146,7 +138,7 @@ def load_settings() -> None:
             "DAILY_FREE_SEARCHES": Config.DAILY_FREE_SEARCHES,
             "PRIVATE_SEARCH_COST": Config.PRIVATE_SEARCH_COST,
             "REFERRAL_BONUS": Config.REFERRAL_BONUS,
-            "JOINING_BONUS": Config.JOINING_BONUS",
+            "JOINING_BONUS": Config.JOINING_BONUS,
             "LOG_CHANNEL_ID": Config.LOG_CHANNEL_ID
         })
 
@@ -169,7 +161,7 @@ cur = conn.cursor()
 
 def init_db():
     with db_lock:
-        cur.executescripts('''
+        cur.executescript('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -347,8 +339,7 @@ async def check_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         kb = [[InlineKeyboardButton("✅ Join Channel", url=l)] for l in not_joined_links]
         kb.append([InlineKeyboardButton("🔄 I've Joined", callback_data="recheck_join")])
         await update.effective_message.reply_text(
-            "🚧 *Access Locked*
-Join the channels below to continue:",
+            "🚧 *Access Locked*\nJoin the channels below to continue:",
             reply_markup=InlineKeyboardMarkup(kb),
             parse_mode="Markdown"
         )
@@ -378,10 +369,11 @@ def fetch_mobile_info(number: str) -> str:
             alt = data.get("alt_mobile") or data.get("alt") or ""
             addr = data.get("address") or data.get("Address") or ""
             parts = [f"👤 Name: {name}", f"🌐 Circle/State: {circle}"]
-            if alt: parts.append(f"📞 Alt: {alt}")
-            if addr: parts.append(f"🏠 Address: {addr}")
-            return "
-".join(parts) or "No details found."
+            if alt:
+                parts.append(f"📞 Alt: {alt}")
+            if addr:
+                parts.append(f"🏠 Address: {addr}")
+            return "\n".join(parts) or "No details found."
         except ValueError:
             t = r.text.strip()
             return t if t else "No details found."
@@ -399,8 +391,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     msg = update.effective_message
 
-    row = get_or_create_user(u.id, u.username or "", u.first_name or "")
+    get_or_create_user(u.id, u.username or "", u.first_name or "")
 
+    # Referral via /start <inviter_id>
     if context.args:
         try:
             inviter_id = int(context.args[0])
@@ -415,19 +408,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await msg.reply_text(
-        "👋 *Welcome to VNIOX Intelligence Bot*
-"
-        "🔍 Send any Indian mobile number to lookup
-
-"
-        "Commands:
-"
-        "• /wallet — Check credits
-"
-        "• /refer — Your invite link
-"
-        "• /grant <uid> <credits> — (Admin) Add credits
-"
+        "👋 *Welcome to VNIOX Intelligence Bot*\n"
+        "🔍 Send any Indian mobile number to lookup\n\n"
+        "Commands:\n"
+        "• /wallet — Check credits\n"
+        "• /refer — Your invite link\n"
+        "• /grant <uid> <credits> — (Admin) Add credits\n"
         "• /help — Help & examples",
         parse_mode="Markdown"
     )
@@ -437,14 +423,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📘 *How to use:*
-"
-        "• Send a 10-digit mobile number (e.g., 98XXXXXXXX)
-"
-        "• /wallet — shows your credit balance
-"
-        "• /refer — get your invite link
-",
+        "📘 *How to use:*\n"
+        "• Send a 10-digit mobile number (e.g., 98XXXXXXXX)\n"
+        "• /wallet — shows your credit balance\n"
+        "• /refer — get your invite link\n",
         parse_mode="Markdown"
     )
 
@@ -473,10 +455,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 balance = float(row["credits"] or 0.0)
             if balance < Config.PRIVATE_SEARCH_COST:
                 await update.message.reply_text(
-                    f"⚠️ Daily free limit reached.
-"
-                    f"You need {Config.PRIVATE_SEARCH_COST} credit. Balance: {balance}.
-"
+                    f"⚠️ Daily free limit reached.\n"
+                    f"You need {Config.PRIVATE_SEARCH_COST} credit. Balance: {balance}.\n"
                     f"Use /refer to earn credits."
                 )
                 return
@@ -504,10 +484,7 @@ async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bal = float(row["credits"] or 0.0)
             refc = int(row["referral_count"] or 0)
     await update.message.reply_text(
-        f"👛 *Wallet*
-Balance: {bal} credits
-Referrals: {refc}
-"
+        f"👛 *Wallet*\nBalance: {bal} credits\nReferrals: {refc}\n"
         f"Daily free searches: {Config.DAILY_FREE_SEARCHES}",
         parse_mode="Markdown"
     )
@@ -517,12 +494,8 @@ async def cmd_refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     me = await context.bot.get_me()
     link = f"https://t.me/{me.username}?start={update.effective_user.id}"
     await update.message.reply_text(
-        f"🔗 *Your referral link:*
-{link}
-
-"
-        f"Invite friends and earn +{Config.REFERRAL_BONUS} credit.
-"
+        f"🔗 *Your referral link:*\n{link}\n\n"
+        f"Invite friends and earn +{Config.REFERRAL_BONUS} credit.\n"
         f"New users get +{Config.JOINING_BONUS} joining bonus.",
         parse_mode="Markdown"
     )
@@ -569,11 +542,18 @@ def build_app() -> Application:
 
 
 def main():
+    # Start Flask panel in background so polling can run
     threading.Thread(target=run_panel, daemon=True).start()
+
     application = build_app()
-    logger.info("Starting bot polling…")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("Starting Telegram bot polling…")
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=False)
+    except Exception as e:
+        logger.exception("Polling crashed: %s", e)
+        raise
 
 
 if __name__ == "__main__":
     main()
+PY
