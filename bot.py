@@ -465,7 +465,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
          InlineKeyboardButton("🔗 Invite Friends", callback_data="refer_friends")],
         [InlineKeyboardButton("💡 How It Works", callback_data="how_it_works"),
          InlineKeyboardButton("📈 My Usage", callback_data="my_stats")],
-        [InlineKeyboardButton("📞 Contact Owner", url="https://t.me/HIDANCODE")]
+        [InlineKeyboardButton("📞 Contact Owner", url="https://t.me/VNI0X")]
     ])
     return keyboard
 
