@@ -2,14 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-Fixed, production-ready launcher for your Telegram OSINT bot + Flask panel.
+app.py — Single-file, production-style Telegram OSINT bot + Flask panel.
 
-Key fixes:
-1) Reliable settings load order (ENV -> data.txt -> code default).
-2) Clear BOT_TOKEN validation with masked logging (prevents InvalidToken).
-3) Safe startup that refuses to run if token is missing/invalid.
-4) Flask runs in a background thread; Telegram app runs on asyncio.
-5) Compatible with python-telegram-bot v20+.
+Choices applied (you answered "B"):
+1) Fancy start message
+2) Channel join OFF (free use)
+3) Phone lookup API: aetherosint.site
+
+Run:
+    python app.py
+Control panel:
+    http://127.0.0.1:5000/   (password default: bm2)
+
+Token load priority: ENV BOT_TOKEN -> data.txt (JSON) -> exit if missing/invalid
 """
 
 import os
@@ -17,13 +22,13 @@ import re
 import json
 import logging
 import threading
+from typing import Optional
 from datetime import datetime
-from functools import wraps
 
 import pytz
 import requests
 from flask import Flask, request, render_template_string
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
@@ -38,37 +43,29 @@ logger = logging.getLogger("app")
 
 # ---------- Paths ----------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(SCRIPT_DIR, "data.txt")         # JSON file
-DB_FILE = os.path.join(SCRIPT_DIR, "phone_lookup_bot.db")    # kept for compatibility
+SETTINGS_FILE = os.path.join(SCRIPT_DIR, "data.txt")  # JSON file
 
 # ---------- Config ----------
 class Config:
-    # Do NOT hardcode your token here. Use ENV or data.txt instead.
     BOT_TOKEN: str = ""
 
-    # Safe defaults (overridable from data.txt)
-    API_URL: str = "https://glonova.in/Ddsdddddddee.php/?num="
+    # Applied API selection "B"
+    API_URL: str = "https://aetherosint.site/api/index.php?key=MOHSIN&type=mobile&term="
     VEHICLE_API_URL: str = "https://vechile-info-subh.vercel.app/lookup?rc="
     GMAIL_API_URL: str = "https://glonova.in/Iqo1oPro.php/?email="
 
     ADMIN_PASSWORD: str = "bm2"
     ADMIN_IDS = [6972508083]
     LOG_CHANNEL_ID = None
-    REQUIRED_CHANNELS = [-1001596819852]   # chat IDs or @usernames
-    ALLOWED_GROUPS = [-1001511253627]
-    CHANNEL_LINKS = ["https://t.me/HEROKU_CLUB", "https://t.me/NOBITA_SUPPORT", "https://t.me/VnioxTechApi"]
+    REQUIRED_CHANNELS = []   # Channel join OFF
+    CHANNEL_LINKS = []
 
     DAILY_FREE_SEARCHES: int = 3
     PRIVATE_SEARCH_COST: float = 1.0
-    REFERRAL_BONUS: float = 0.5
-    JOINING_BONUS: float = 5.0
 
     TIMEZONE = pytz.timezone("Asia/Kolkata")
-
-    BOT_LOCKED: bool = False
-    MAINTENANCE_MODE: bool = False
-    GROUP_SEARCHES_OFF: bool = False
     BOT_ACTIVE: bool = True
+    MAINTENANCE_MODE: bool = False
 
 
 def _read_json_settings(path: str) -> dict:
@@ -92,62 +89,39 @@ def _write_json_settings(path: str, data: dict) -> None:
 
 
 def load_settings() -> None:
-    """
-    Load settings from ENV first, then data.txt, then keep code defaults.
-    """
-    # 1) ENV (highest priority)
     env_token = os.getenv("BOT_TOKEN", "").strip()
     if env_token:
         Config.BOT_TOKEN = env_token
 
-    # 2) data.txt (JSON)
     data = _read_json_settings(SETTINGS_FILE)
-    if not Config.BOT_TOKEN:  # only fallback if ENV not set
+    if not Config.BOT_TOKEN:
         Config.BOT_TOKEN = data.get("BOT_TOKEN", "").strip()
 
-    # Load rest (ENV could override too if you like; here we keep it simple)
+    # Merge other settings (optional overrides)
     Config.API_URL = data.get("API_URL", Config.API_URL)
     Config.VEHICLE_API_URL = data.get("VEHICLE_API_URL", Config.VEHICLE_API_URL)
     Config.GMAIL_API_URL = data.get("GMAIL_API_URL", Config.GMAIL_API_URL)
-
     Config.ADMIN_PASSWORD = data.get("ADMIN_PASSWORD", Config.ADMIN_PASSWORD)
     Config.ADMIN_IDS = data.get("ADMIN_IDS", Config.ADMIN_IDS)
     Config.LOG_CHANNEL_ID = data.get("LOG_CHANNEL_ID", Config.LOG_CHANNEL_ID)
-    Config.REQUIRED_CHANNELS = data.get("REQUIRED_CHANNELS", Config.REQUIRED_CHANNELS)
-    Config.ALLOWED_GROUPS = data.get("ALLOWED_GROUPS", Config.ALLOWED_GROUPS)
-    Config.CHANNEL_LINKS = data.get("CHANNEL_LINKS", Config.CHANNEL_LINKS)
-
     Config.DAILY_FREE_SEARCHES = int(data.get("DAILY_FREE_SEARCHES", Config.DAILY_FREE_SEARCHES))
     Config.PRIVATE_SEARCH_COST = float(data.get("PRIVATE_SEARCH_COST", Config.PRIVATE_SEARCH_COST))
-    Config.REFERRAL_BONUS = float(data.get("REFERRAL_BONUS", Config.REFERRAL_BONUS))
-    Config.JOINING_BONUS = float(data.get("JOINING_BONUS", Config.JOINING_BONUS))
-
-    Config.BOT_LOCKED = bool(data.get("BOT_LOCKED", Config.BOT_LOCKED))
-    Config.MAINTENANCE_MODE = bool(data.get("MAINTENANCE_MODE", Config.MAINTENANCE_MODE))
-    Config.GROUP_SEARCHES_OFF = bool(data.get("GROUP_SEARCHES_OFF", Config.GROUP_SEARCHES_OFF))
     Config.BOT_ACTIVE = bool(data.get("BOT_ACTIVE", Config.BOT_ACTIVE))
+    Config.MAINTENANCE_MODE = bool(data.get("MAINTENANCE_MODE", Config.MAINTENANCE_MODE))
 
-    # If file didn't exist, write one (without token to avoid accidents)
     if not os.path.exists(SETTINGS_FILE):
         _write_json_settings(SETTINGS_FILE, {
-            "BOT_TOKEN": Config.BOT_TOKEN,          # will be empty unless ENV provided
+            "BOT_TOKEN": Config.BOT_TOKEN,
             "API_URL": Config.API_URL,
             "VEHICLE_API_URL": Config.VEHICLE_API_URL,
             "GMAIL_API_URL": Config.GMAIL_API_URL,
             "ADMIN_PASSWORD": Config.ADMIN_PASSWORD,
             "ADMIN_IDS": Config.ADMIN_IDS,
             "LOG_CHANNEL_ID": Config.LOG_CHANNEL_ID,
-            "REQUIRED_CHANNELS": Config.REQUIRED_CHANNELS,
-            "ALLOWED_GROUPS": Config.ALLOWED_GROUPS,
-            "CHANNEL_LINKS": Config.CHANNEL_LINKS,
             "DAILY_FREE_SEARCHES": Config.DAILY_FREE_SEARCHES,
             "PRIVATE_SEARCH_COST": Config.PRIVATE_SEARCH_COST,
-            "REFERRAL_BONUS": Config.REFERRAL_BONUS,
-            "JOINING_BONUS": Config.JOINING_BONUS,
-            "BOT_LOCKED": Config.BOT_LOCKED,
-            "MAINTENANCE_MODE": Config.MAINTENANCE_MODE,
-            "GROUP_SEARCHES_OFF": Config.GROUP_SEARCHES_OFF,
-            "BOT_ACTIVE": Config.BOT_ACTIVE
+            "BOT_ACTIVE": Config.BOT_ACTIVE,
+            "MAINTENANCE_MODE": Config.MAINTENANCE_MODE
         })
 
 
@@ -160,11 +134,10 @@ def _mask_token(token: str) -> str:
 
 
 def _is_valid_token(token: str) -> bool:
-    # Basic structure: <digits>:<string with allowed chars>, usually long
     return bool(re.match(r"^\d{6,12}:[A-Za-z0-9_-]{30,}$", token))
 
 
-# ---------- Flask (simple control panel) ----------
+# ---------- Flask Panel ----------
 PANEL = Flask(__name__)
 
 CONTROL_PANEL_HTML = """
@@ -240,58 +213,154 @@ def run_flask():
     PANEL.run(host="0.0.0.0", port=5000)
 
 
-# ---------- Telegram Handlers (DEMO) ----------
+# ---------- Helper: API calls ----------
+def fetch_mobile_info(number: str) -> str:
+    """Call the aetherosint mobile API, return a readable string."""
+    url = f"{Config.API_URL}{number}"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        # API sometimes returns JSON/text. Try JSON first.
+        try:
+            data = r.json()
+            # Build simple summary if known keys
+            name = data.get("name") or data.get("Name") or data.get("owner") or "N/A"
+            circle = data.get("circle") or data.get("Circle") or data.get("state") or "N/A"
+            alt = data.get("alt_mobile") or data.get("alt") or ""
+            addr = data.get("address") or data.get("Address") or ""
+            parts = [f"👤 Name: {name}", f"🌐 Circle/State: {circle}"]
+            if alt: parts.append(f"📞 Alt: {alt}")
+            if addr: parts.append(f"🏠 Address: {addr}")
+            return "\n".join(parts) or "No details found."
+        except ValueError:
+            # Not JSON; return text
+            t = r.text.strip()
+            return t if t else "No details found."
+    except requests.RequestException as e:
+        return f"API error: {e}"
+
+
+def fetch_vehicle_info(rc: str) -> str:
+    url = f"{Config.VEHICLE_API_URL}{rc}"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        return r.text.strip() or "No data."
+    except requests.RequestException as e:
+        return f"API error: {e}"
+
+
+def fetch_email_info(email: str) -> str:
+    url = f"{Config.GMAIL_API_URL}{email}"
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        return r.text.strip() or "No data."
+    except requests.RequestException as e:
+        return f"API error: {e}"
+
+
+# ---------- Telegram Handlers ----------
+from telegram.ext import ApplicationBuilder
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     if not Config.BOT_ACTIVE:
         await update.message.reply_text("🔒 Bot is currently inactive. Try again later.")
         return
+    # Fancy start message
     await update.message.reply_text(
-        f"Hi {user.first_name or 'friend'}! 👋\n"
-        f"Bot is up and running.\n\n"
-        f"• Daily free searches: {Config.DAILY_FREE_SEARCHES}\n"
-        f"• Private search cost: {Config.PRIVATE_SEARCH_COST} credit(s)\n\n"
-        f"Send a 10-digit number to proceed (demo)."
+        "👋 **Welcome to VNIOX Intelligence Bot**\n"
+        "🔍 *Send any Indian mobile number to lookup*\n\n"
+        "Commands:\n"
+        "• /vehicle <RC> — Vehicle info\n"
+        "• /email <email> — Email OSINT\n"
+        "• /help — Help & examples",
+        parse_mode="Markdown"
     )
 
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📘 *How to use:*\n"
+        "• Send a 10-digit mobile number (e.g., 98XXXXXXXX)\n"
+        "• /vehicle DL1ABC1234\n"
+        "• /email someone@gmail.com",
+        parse_mode="Markdown"
+    )
+
+
+def _digits_from_text(s: str) -> str:
+    return "".join(ch for ch in s if ch.isdigit())
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not Config.BOT_ACTIVE:
+        return
     text = (update.message.text or "").strip()
-    if text.isdigit() and len(text) == 10:
-        await update.message.reply_text(f"🔍 You sent number: {text}\n(Demo handler here)")
-    else:
-        # Ignore or guide user
-        await update.message.reply_text("Please send a 10-digit phone number (demo).")
+
+    # Try number detection
+    digits = _digits_from_text(text)
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[-10:]
+    if len(digits) == 10:
+        await update.message.reply_text("⏳ Fetching details...")
+        result = fetch_mobile_info(digits)
+        await update.message.reply_text(result[:4000])
+        return
+
+    await update.message.reply_text("❓ Send a 10-digit mobile number, or use /help")
+
+
+async def cmd_vehicle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /vehicle <RC>")
+        return
+    rc = args[0].upper()
+    await update.message.reply_text("⏳ Fetching vehicle info...")
+    result = fetch_vehicle_info(rc)
+    await update.message.reply_text(result[:4000])
+
+
+async def cmd_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /email <email>")
+        return
+    email = args[0]
+    await update.message.reply_text("⏳ Fetching email info...")
+    result = fetch_email_info(email)
+    await update.message.reply_text(result[:4000])
 
 
 def build_application() -> Application:
     load_settings()
-
     masked = _mask_token(Config.BOT_TOKEN)
     logger.info("Using BOT_TOKEN: %s", masked)
 
     if not _is_valid_token(Config.BOT_TOKEN):
-        logger.critical("\n\nYour BOT_TOKEN is missing or invalid.\n"
-                        "Set it via ENV or data.txt (JSON).\n"
-                        "Example ENV (Windows PowerShell):\n"
-                        '$Env:BOT_TOKEN = "1234567890:AA..."\n'
-                        "Example data.txt content:\n"
-                        '{\n  \"BOT_TOKEN\": \"1234567890:AA...\"\n}\n")
+        logger.critical("Invalid or missing BOT_TOKEN. Set via ENV or data.txt")
         raise SystemExit(2)
 
     app = Application.builder().token(Config.BOT_TOKEN).build()
 
-    # Core handlers (add your full handlers here)
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("vehicle", cmd_vehicle))
+    app.add_handler(CommandHandler("email", cmd_email))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     return app
 
 
-def main():
-    # Run panel in a background thread
-    threading.Thread(target=run_flask, daemon=True).start()
+# ---------- Main ----------
+def run_flask():
+    logger.info("Starting Flask on 0.0.0.0:5000")
+    PANEL.run(host="0.0.0.0", port=5000)
 
+
+def main():
+    threading.Thread(target=run_flask, daemon=True).start()
     application = build_application()
     logger.info("Starting Telegram bot polling…")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
