@@ -1,5 +1,5 @@
 {
-    "BOT_TOKEN": "",
+    "BOT_TOKEN": "8211530135:AAH9Mjzq7KsrNh4JbbZu1HolqD22d_MWXdw",
     "API_URL": "https://aetherosint.site/api/index.php?key=MOHSIN&type=mobile&term=",
     "VEHICLE_API_URL": "https://vechile-info-subh.vercel.app/lookup?rc=",
     "GMAIL_API_URL": "https://glonova.in/Iqo1oPro.php/?email=",
