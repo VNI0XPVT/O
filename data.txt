@@ -1,6 +1,6 @@
 {
     "BOT_TOKEN": "8211530135:AAH9Mjzq7KsrNh4JbbZu1HolqD22d_MWXdw",
-    "API_URL": "https://aetherosint.site/api/index.php?key=MOHSIN&type=mobile&term=",
+    "API_URL": "https://subhxmouktik-number-api.onrender.com/api?key=DEMO&typeobile&term=",
     "VEHICLE_API_URL": "https://vechile-info-subh.vercel.app/lookup?rc=",
     "GMAIL_API_URL": "https://glonova.in/Iqo1oPro.php/?email=",
     "ADMIN_PASSWORD": "bm2",
