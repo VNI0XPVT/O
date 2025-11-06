@@ -1,28 +1,13 @@
 {
     "BOT_TOKEN": "8211530135:AAH9Mjzq7KsrNh4JbbZu1HolqD22d_MWXdw",
-    "API_URL": "https://glonova.in/Ddsdddddddee.php/?num=",
+    "API_URL": "https://aetherosint.site/api/index.php?key=MOHSIN&type=mobile&term=",
     "VEHICLE_API_URL": "https://vechile-info-subh.vercel.app/lookup?rc=",
     "GMAIL_API_URL": "https://glonova.in/Iqo1oPro.php/?email=",
     "ADMIN_PASSWORD": "bm2",
     "ADMIN_IDS": [6972508083],
     "LOG_CHANNEL_ID": null,
-    "REQUIRED_CHANNELS": [
-        -1001596819852
-    ],
-    "ALLOWED_GROUPS": [
-        -1001511253627
-    ],
-    "CHANNEL_LINKS": [
-        "https://t.me/HEROKU_CLUB",
-        "https://t.me/NOBITA_SUPPORT",
-        "https://t.me/VnioxTechApi"
-    ],
     "DAILY_FREE_SEARCHES": 3,
     "PRIVATE_SEARCH_COST": 1.0,
-    "REFERRAL_BONUS": 0.5,
-    "JOINING_BONUS": 5.0,
-    "BOT_LOCKED": false,
-    "MAINTENANCE_MODE": false,
-    "GROUP_SEARCHES_OFF": false,
-    "BOT_ACTIVE": true
+    "BOT_ACTIVE": true,
+    "MAINTENANCE_MODE": false
 }
